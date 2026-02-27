@@ -41,7 +41,7 @@ class MISPClient:
         self.default_tags = tags or []
         self.publish = publish
 
-        self._misp = PyMISP(self.url, api_key, ssl=verify_ssl)
+        self._misp = PyMISP(self.url, api_key, ssl=verify_ssl, timeout=30)
 
     def test_connection(self) -> bool:
         """Verify connectivity and authentication to MISP."""
@@ -140,6 +140,15 @@ class MISPClient:
                 offense.offense_id,
                 len(offense.iocs),
             )
+            if self.publish:
+                try:
+                    self._api_call_with_retry(self._misp.publish, result.id)
+                    logger.info("Published MISP event %s", result.id)
+                except Exception:
+                    logger.warning(
+                        "Created event %s but failed to publish it",
+                        result.id,
+                    )
             return result
 
         logger.error(
@@ -195,6 +204,7 @@ class MISPClient:
             try:
                 sighting = MISPSighting()
                 sighting.source = f"{offense.siem_type}:offense_{offense.offense_id}"
+                sighting.timestamp = int(offense.timestamp.timestamp())
                 self._misp.add_sighting(sighting, attr.id)
             except Exception:
                 logger.debug(
@@ -213,10 +223,22 @@ class MISPClient:
         }
 
     def _api_call_with_retry(self, func, *args, **kwargs) -> Any:
-        """Execute a MISP API call with exponential backoff retry."""
+        """Execute a MISP API call with exponential backoff retry.
+
+        Only retries on transient errors (network, timeout, server errors).
+        Non-retryable errors (auth, validation, programming) are raised immediately.
+        """
+        _non_retryable = (TypeError, ValueError, KeyError, AttributeError)
+
         for attempt in range(MAX_RETRIES):
             try:
                 return func(*args, **kwargs)
+            except _non_retryable:
+                logger.exception(
+                    "MISP API call %s failed with non-retryable error",
+                    getattr(func, "__name__", str(func)),
+                )
+                raise
             except Exception:
                 if attempt == MAX_RETRIES - 1:
                     logger.exception(

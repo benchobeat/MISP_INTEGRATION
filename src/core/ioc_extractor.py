@@ -51,8 +51,38 @@ _EMAIL_PATTERN = re.compile(
 _EXCLUDED_DOMAINS = {
     "example.com",
     "example.org",
+    "example.net",
     "localhost",
     "localhost.localdomain",
+    "schema.org",
+    "w3.org",
+    "xml.org",
+    "googleapis.com",
+    "microsoft.com",
+    "windowsupdate.com",
+    "windows.net",
+    "google.com",
+    "github.com",
+    "digicert.com",
+    "verisign.com",
+    "symantec.com",
+    "letsencrypt.org",
+    "update.windows.com",
+    "windowsupdate.microsoft.com",
+}
+
+# File extensions that look like TLDs but are not real domains
+_FALSE_POSITIVE_TLDS = {
+    "exe", "dll", "sys", "bat", "cmd", "scr", "pif",
+    "msi", "jar", "ps1", "vbs", "wsf", "hta",
+    "doc", "docx", "xls", "xlsx", "ppt", "pptx", "pdf",
+    "zip", "rar", "7z", "tar", "gz", "bz2",
+    "txt", "csv", "log", "tmp", "bak", "old", "orig",
+    "png", "jpg", "jpeg", "gif", "bmp", "svg", "ico",
+    "html", "htm", "xml", "json", "yaml", "yml",
+    "cfg", "conf", "ini", "env",
+    "py", "js", "ts", "rb", "go", "rs", "java", "cpp", "sh",
+    "local", "internal", "source", "code", "test",
 }
 
 
@@ -188,6 +218,9 @@ def extract_iocs_from_text(
         # Basic TLD validation (must have at least 2 parts)
         parts = domain.split(".")
         if len(parts) >= 2 and len(parts[-1]) >= 2:
+            # Skip filenames that look like domains (e.g., "malware.exe")
+            if parts[-1].lower() in _FALSE_POSITIVE_TLDS:
+                continue
             _add(IoCType.DOMAIN, domain)
 
     return iocs

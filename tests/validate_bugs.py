@@ -595,21 +595,36 @@ def validate_issue_6():
     misp_source = misp_path.read_text() if misp_path.exists() else ""
 
     # Buscar patrones de catch generico en retry
-    qradar_catches_all = "except requests.exceptions.RequestException:" in qradar_source
+    # El fix cambia "except requests.exceptions.RequestException:" a
+    # "except requests.exceptions.RequestException as exc:" y agrega filtrado
+    qradar_catches_all = (
+        "except requests.exceptions.RequestException:" in qradar_source
+        and "status_code" not in qradar_source
+    )
     misp_catches_all = False
 
-    # En misp_client, buscar el catch generico en _api_call_with_retry
+    # En misp_client, buscar si _api_call_with_retry captura Exception sin filtrar
     in_retry_method = False
+    has_non_retryable_filter = False
     for line in misp_source.split("\n"):
         if "_api_call_with_retry" in line and "def " in line:
             in_retry_method = True
-        if in_retry_method and "except Exception:" in line.strip():
-            misp_catches_all = True
-            break
+        if in_retry_method:
+            if "_non_retryable" in line or "non_retryable" in line.lower():
+                has_non_retryable_filter = True
+            if "except Exception:" in line.strip() and not has_non_retryable_filter:
+                misp_catches_all = True
+                break
+            if line.strip().startswith("def ") and "def _api_call_with_retry" not in line:
+                break
 
-    # Verificar si hay filtrado por status_code
+    # Verificar si hay filtrado por status_code o error type
     qradar_filters_status = "status_code" in qradar_source and ("< 500" in qradar_source or ">= 500" in qradar_source)
-    misp_filters_errors = "status_code" in misp_source or "retryable" in misp_source.lower()
+    misp_filters_errors = (
+        has_non_retryable_filter
+        or "status_code" in misp_source
+        or "retryable" in misp_source.lower()
+    )
 
     evidence_lines = [
         f"QRadar _get() captura RequestException generico: {qradar_catches_all}",
@@ -658,7 +673,11 @@ def validate_issue_7():
     source = qradar_path.read_text() if qradar_path.exists() else ""
 
     # Buscar la validacion de tipo de respuesta en fetch_offenses
-    has_isinstance_check = "isinstance(offenses, list)" in source
+    # El fix puede usar isinstance(offenses, list) o isinstance(page, list) (con paginacion)
+    has_isinstance_check = (
+        "isinstance(offenses, list)" in source
+        or "isinstance(page, list)" in source
+    )
     has_not_offenses = "if not offenses:" in source
 
     log_verbose(f"Tiene isinstance(offenses, list): {has_isinstance_check}")
@@ -684,7 +703,9 @@ def validate_issue_7():
         would_silently_skip = not offenses  # Esto es lo que hace el codigo
         log_verbose(f"  Respuesta: {example} → 'if not offenses' = {would_silently_skip} (saltaria silenciosamente)")
 
-    if has_not_offenses and not has_isinstance_check:
+    if has_isinstance_check:
+        r.set_confirmed(False, "Ya valida que la respuesta sea una lista.", "\n".join(evidence_lines))
+    elif has_not_offenses:
         r.set_confirmed(
             True,
             "fetch_offenses usa 'if not offenses:' sin validar el tipo.\n"
@@ -694,8 +715,6 @@ def validate_issue_7():
             "Si retorna None, lo trata como 'sin offenses' silenciosamente.",
             "\n".join(evidence_lines),
         )
-    elif has_isinstance_check:
-        r.set_confirmed(False, "Ya valida que la respuesta sea una lista.", "\n".join(evidence_lines))
     else:
         r.set_confirmed(True, "No se pudo determinar el manejo de respuesta.", "\n".join(evidence_lines))
 

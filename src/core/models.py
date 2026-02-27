@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 
 
@@ -86,7 +86,7 @@ class NormalizedOffense:
     severity: int  # 1-10 normalized
     source_ip: str | None = None
     destination_ip: str | None = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     raw_event: dict = field(default_factory=dict)
     iocs: list[IoC] = field(default_factory=list)
     categories: list[str] = field(default_factory=list)
