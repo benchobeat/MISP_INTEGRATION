@@ -1,0 +1,46 @@
+version: "3.8"
+
+services:
+  misp-integration:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: misp-siem-integration
+    restart: unless-stopped
+    environment:
+      # Required: Set these in .env file or via docker-compose environment
+      - MISP_API_KEY=${MISP_API_KEY}
+      - MISP_URL=${MISP_URL:-https://misp.example.com}
+      - QRADAR_API_TOKEN=${QRADAR_API_TOKEN}
+      - QRADAR_URL=${QRADAR_URL:-https://qradar.example.com}
+      - CONFIG_PATH=/app/config/settings.yaml
+    volumes:
+      # Persist state database between restarts
+      - misp-state:/app/data
+      # Optional: mount custom config
+      # - ./config/settings.yaml:/app/config/settings.yaml:ro
+    # Read-only filesystem for security (except data volume)
+    read_only: true
+    tmpfs:
+      - /tmp
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+        reservations:
+          memory: 64M
+          cpus: "0.1"
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  misp-state:
+    driver: local

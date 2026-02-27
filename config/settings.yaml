@@ -1,0 +1,71 @@
+# MISP SIEM Integration - Configuration
+# API keys are NOT stored here. Use environment variables:
+#   MISP_API_KEY, QRADAR_API_TOKEN
+
+general:
+  # Polling interval in seconds (300 = 5 minutes)
+  polling_interval_seconds: 300
+  # Log level: DEBUG, INFO, WARNING, ERROR
+  log_level: INFO
+  # On first run, fetch offenses from the last N hours
+  initial_lookback_hours: 24
+
+misp:
+  # MISP server URL (override with MISP_URL env var)
+  url: "https://misp.example.com"
+  # Verify SSL certificate
+  verify_ssl: true
+  # Distribution level for new events:
+  #   0 = Your organisation only
+  #   1 = This community only
+  #   2 = Connected communities
+  #   3 = All communities
+  distribution: 0
+  # Default threat level for events without severity mapping:
+  #   1 = High, 2 = Medium, 3 = Low, 4 = Undefined
+  threat_level_default: 2
+  # Analysis state for new events:
+  #   0 = Initial, 1 = Ongoing, 2 = Complete
+  analysis_default: 1
+  # Tags automatically added to every event
+  tags:
+    - "tlp:amber"
+    - "automated:true"
+  # Published state for new events (false = draft)
+  publish: false
+
+qradar:
+  # QRadar console URL (override with QRADAR_URL env var)
+  url: "https://qradar.example.com"
+  # Verify SSL certificate
+  verify_ssl: true
+  # API version
+  api_version: "14.0"
+  # Only process offenses with status OPEN
+  offense_status_filter: "OPEN"
+  # Minimum magnitude to process (1-10, offenses below this are ignored)
+  min_magnitude: 3
+  # Fields to retrieve from offenses API
+  offense_fields:
+    - "id"
+    - "description"
+    - "offense_source"
+    - "offense_type"
+    - "source_address_ids"
+    - "local_destination_address_ids"
+    - "magnitude"
+    - "severity"
+    - "relevance"
+    - "credibility"
+    - "status"
+    - "start_time"
+    - "last_updated_time"
+    - "category_count"
+    - "categories"
+    - "rules"
+
+state:
+  # State backend: sqlite
+  backend: "sqlite"
+  # Path for state database (relative to project root)
+  path: "./data/state.db"
