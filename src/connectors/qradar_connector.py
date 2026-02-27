@@ -97,7 +97,7 @@ class QRadarConnector(BaseSIEMConnector):
 
         filter_parts = [f"last_updated_time > {since_ms}"]
         if self._offense_status_filter:
-            filter_parts.append(f"status = {self._offense_status_filter}")
+            filter_parts.append(f"status = '{self._offense_status_filter}'")
         if self._min_magnitude > 1:
             filter_parts.append(f"magnitude >= {self._min_magnitude}")
 
@@ -106,29 +106,60 @@ class QRadarConnector(BaseSIEMConnector):
 
         logger.info("Fetching QRadar offenses since %s (filter: %s)", since.isoformat(), filter_str)
 
-        offenses = self._get(
-            "/api/siem/offenses",
-            params={
-                "filter": filter_str,
-                "fields": fields,
-                "sort": "+last_updated_time",
-            },
-        )
+        page_size = 50
+        offset = 0
+        total_fetched = 0
 
-        if not offenses:
-            logger.info("No new offenses found")
-            return
+        while True:
+            page = self._get(
+                "/api/siem/offenses",
+                params={
+                    "filter": filter_str,
+                    "fields": fields,
+                    "sort": "+last_updated_time",
+                },
+                extra_headers={"Range": f"items={offset}-{offset + page_size - 1}"},
+            )
 
-        logger.info("Found %d new/updated offenses", len(offenses))
+            if not isinstance(page, list):
+                if page is not None:
+                    logger.error(
+                        "Unexpected QRadar response (type=%s): %s",
+                        type(page).__name__,
+                        str(page)[:200],
+                    )
+                if total_fetched == 0:
+                    logger.info("No new offenses found")
+                break
 
-        for offense_data in offenses:
-            try:
-                yield self._normalize_offense(offense_data)
-            except Exception:
-                logger.exception(
-                    "Failed to normalize offense %s",
-                    offense_data.get("id", "unknown"),
-                )
+            if not page:
+                if total_fetched == 0:
+                    logger.info("No new offenses found")
+                break
+
+            total_fetched += len(page)
+            logger.info(
+                "Fetched page of %d offenses (total so far: %d)",
+                len(page),
+                total_fetched,
+            )
+
+            for offense_data in page:
+                try:
+                    yield self._normalize_offense(offense_data)
+                except Exception:
+                    logger.exception(
+                        "Failed to normalize offense %s",
+                        offense_data.get("id", "unknown"),
+                    )
+
+            if len(page) < page_size:
+                break  # Last page
+
+            offset += page_size
+
+        if total_fetched > 0:
+            logger.info("Found %d total new/updated offenses", total_fetched)
 
     def get_offense_iocs(self, offense: NormalizedOffense) -> NormalizedOffense:
         """Enrich a normalized offense with IoCs from QRadar.
@@ -241,16 +272,32 @@ class QRadarConnector(BaseSIEMConnector):
                 logger.debug("Could not resolve destination address %d", addr_id)
         return ips
 
-    def _get(self, endpoint: str, params: dict | None = None) -> Any:
+    def _get(
+        self,
+        endpoint: str,
+        params: dict | None = None,
+        extra_headers: dict | None = None,
+    ) -> Any:
         """Make a GET request to the QRadar API with retry logic."""
         url = f"{self._base_url}{endpoint}"
 
         for attempt in range(3):
             try:
-                resp = self._session.get(url, params=params, timeout=30)
+                resp = self._session.get(
+                    url, params=params, headers=extra_headers, timeout=30,
+                )
                 resp.raise_for_status()
                 return resp.json()
-            except requests.exceptions.RequestException:
+            except requests.exceptions.RequestException as exc:
+                # Don't retry client errors (4xx) — they won't succeed on retry
+                if hasattr(exc, "response") and exc.response is not None:
+                    if exc.response.status_code < 500:
+                        logger.error(
+                            "QRadar API request to %s failed with client error %d, not retrying",
+                            endpoint,
+                            exc.response.status_code,
+                        )
+                        raise
                 if attempt == 2:
                     raise
                 wait = 2 ** (attempt + 1)

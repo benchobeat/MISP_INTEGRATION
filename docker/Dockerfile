@@ -28,5 +28,4 @@ HEALTHCHECK --interval=60s --timeout=10s --retries=3 \
 ENV PYTHONUNBUFFERED=1
 ENV CONFIG_PATH=/app/config/settings.yaml
 
-ENTRYPOINT ["python", "-m"]
-CMD ["src.main"]
+CMD ["python", "-m", "src.main"]
